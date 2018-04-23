@@ -1,3 +1,4 @@
+#Authors: __"Tom De Smedt, Masha Ivenskaya"__
 # Each time you run this script (which requires Pattern),
 # it collects articles from known sources and their bias,
 # and appends to a CSV-file (/data/news1.csv)
@@ -8,10 +9,6 @@ from pattern.web import Newsfeed
 from pattern.web import URL
 from pattern.web import DOM
 from pattern.web import plaintext
-
-# To estimate the level of bias:
-# https://mediabiasfactcheck.com
-# http://www.fakenewschecker.com
 
 sources = {
 

@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import re
 import json
-from pattern.nl import parse
+
 
 path = "/Users/leonievanstappen/Documents/school/master/Thesis/news.csv"
 df = pd.read_csv(path)
@@ -19,7 +19,7 @@ regex = r"((Advertentie)((\n)+)(Teasers)((\n)+)\* )((Uitgelicht )(\|)((\n)+)\* (
 series.replace(regex, "", inplace=True, regex=True)
 df.loc[df["naam"]=="Trouw", "tekst"] = series
 lengths = series.str.len()
-print(len(df), lengths.mean(), len(df[df["label"]=="links"]), len(df[df["label"]=="neutral"]), len(df[df["label"]=="rechts"]))
+print(len(df), "\nGemiddelde lengte:", lengths.mean(), "\nNiet neutraal", len(df[df["label"]!="neutral"]), "\nNeutraal", len(df[df["label"]=="neutral"]))
 
 #deletdis = "Advertentie\n\nTeasers\n\n* Uitgelicht |\n* Net binnen\n\nNam"
 
