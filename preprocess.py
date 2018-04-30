@@ -1,10 +1,9 @@
 import pandas as pd
 import numpy as np
 import re
-import json
+import matplotlib.pyplot as plt
 
-
-path = "/Users/leonievanstappen/Documents/school/master/Thesis/news.csv"
+path = "/Users/leonievanstappen/Documents/github/thesis/news.csv"
 df = pd.read_csv(path)
 df.columns = ["naam", "titel", "tekst", "label"]
 df = df.dropna()
@@ -19,11 +18,7 @@ regex = r"((Advertentie)((\n)+)(Teasers)((\n)+)\* )((Uitgelicht )(\|)((\n)+)\* (
 series.replace(regex, "", inplace=True, regex=True)
 df.loc[df["naam"]=="Trouw", "tekst"] = series
 lengths = series.str.len()
-print(len(df), "\nGemiddelde lengte:", lengths.mean(), "\nNiet neutraal", len(df[df["label"]!="neutral"]), "\nNeutraal", len(df[df["label"]=="neutral"]))
-
-#deletdis = "Advertentie\n\nTeasers\n\n* Uitgelicht |\n* Net binnen\n\nNam"
-
-#Advertentie\n\nTeasers\n\n* Uitgelicht |\n* Net binnen\n\nNam
-
+#df.label = df.label.map({"rechts": -1, "neutral": 0, "links": 1})
+print("Lengte:", len(df), "\nGemiddelde lengte:", lengths.mean(), "\nNiet neutraal:", len(df[df["label"]!=0]), "\nLinks:", len(df[df["label"]==1]), "\nRechts:", len(df[df["label"]==-1]), "\nNeutraal", len(df[df["label"]==0]))
 
 #df.to_csv(path, index=False)
