@@ -1,73 +1,75 @@
-import pandas as pd
-import numpy as np
-import re
-import nltk
-import string #om de punctuation op te lijsten
-from collections import defaultdict
-from postag import postagger
+from sklearn.feature_extraction.text import TfidfTransformer, TfidfVectorizer, CountVectorizer
 from sklearn.feature_extraction import DictVectorizer
-from sklearn.feature_extraction.text import TfidfTransformer
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.feature_selection import SelectKBest
-from sklearn.feature_selection import chi2
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import cross_val_score
+from sklearn.feature_selection import SelectKBest, f_classif, chi2
+from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV, StratifiedKFold
+from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import FeatureUnion #make combination of heterogenous features possible
 from sklearn.pipeline import Pipeline
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, f1_score, precision_score,recall_score
+from spacy.tokenizer import Tokenizer
+from spacy.pipeline import Tagger
+from sklearn.dummy import DummyClassifier
 from sklearn.base import BaseEstimator, TransformerMixin #base classes to make it possible to work w feature union in pipeline
-from sklearn.svm import LinearSVC
-from sklearn.metrics import accuracy_score, confusion_matrix
-from sklearn.metrics import classification_report
+from sklearn.svm import SVC
+from collections import defaultdict
+from sys import argv
+import pandas as pd
+import numpy as np
+import string #om de punctuation op te lijsten
+import spacy
+import nltk
+import re
 
 
+script, file =  argv
 
-class ItemSelector(BaseEstimator, TransformerMixin): #picks data from dict(X) according to key, returns one-dimensional array (vector)
-    def __init__(self, key): #establish keyword arguments
+
+class ItemSelector(BaseEstimator, TransformerMixin):
+    def __init__(self, key):
         self.key = key
 
     def fit(self, x, y=None):
         return self
 
-    def transform(self, data_dict): #itemselector selects from given dict according to certain key
+    def transform(self, data_dict):
         return data_dict[self.key]
 
 
-class FeatureExtractor(BaseEstimator, TransformerMixin): #takes care of POS --> uit nltk
-    #Extracts PoS-tags from each document
+class FeatureExtractor(BaseEstimator, TransformerMixin):
     def fit(self, x, y=None):
         return self
 
     def transform(self, tekst):
         features = defaultdict(list)
-        for titel, artikel in tekst:
+        for titel, artikel, tekst_pos, titel_pos in tekst:
             features["artikel"].append(artikel)
             features["titel"].append(titel)
-            #features["tekst_pos"].append(tekst_pos)
-            #features["titel_pos"].append(titel_pos)#take the second element bc the first is the word repeated
+            features["tekst_pos"].append(tekst_pos)
+            features["titel_pos"].append(titel_pos)
         return features
 
 
-class Punct_Stats(BaseEstimator, TransformerMixin):#BaseEstimator and TransformerMixin make it possible to transform data according to defined functions, returns np array
+class Punct_Stats(BaseEstimator, TransformerMixin):
     #""""""Extract punctuation features from each document""""""
 
     def fit(self, x, y=None):
         return self
 
-    def transform(self, tekst): #transform fct makes it so it's usable in a pipeline
+    def transform(self, tekst):
         punct_stats = []
         punctuations = list(string.punctuation)
         additional_punc = ["``", "--", "\"\""]
         punctuations.extend(additional_punc)
         for artikel in tekst:
-            puncts = defaultdict(int) #manier om dict te initializeren zodat als een key niet bekend is er een nieuwe wordt aangemaakt met bep integer (hier 0)
+            puncts = defaultdict(int)
             for ch in artikel:
                 if ch in punctuations:
                     puncts[ch]+=1
             punct_stats.append(puncts)
-        return punct_stats #kan sklearn gemakkelijk features van maken --> dictvectorizer
+        return punct_stats
 
 class Profanity(BaseEstimator, TransformerMixin):
     #""""""Check artikeluments for ethnic slurs""""""
@@ -80,7 +82,7 @@ class Profanity(BaseEstimator, TransformerMixin):
         slurs = open("scheldwoorden.txt", "r+")
         slurs = set(slurs.read().lower())
         for artikel in tekst:
-            badwords = defaultdict(int) #way to initialize dict so that if key is unknown, new key is made with value: integer (0 here)
+            badwords = defaultdict(int)
             for word in artikel:
                 if word in slurs:
                     badwords[word] += 1
@@ -114,7 +116,7 @@ class Text_Stats(BaseEstimator, TransformerMixin):
                     num_prof = float(len([w for w in tok_text if w.lower() in PROFANITY]))/len(tok_text)
                 except ZeroDivisionError:
                     num_prof = 0
-                try:
+                try: #how long are the
                     sent_lengths = [len(nltk.word_tokenize(s)) for s in nltk.sent_tokenize(artikel)]
                     av_sent_len = float(sum(sent_lengths))/len(sent_lengths)
                 except ZeroDivisionError:
@@ -130,86 +132,95 @@ class Text_Stats(BaseEstimator, TransformerMixin):
 
 def PipelineCreator():
     pipeline = Pipeline([
-            ("features", FeatureExtractor()), #get text ready for analyzing: split into artikel text and pos tags
-            ("union", FeatureUnion( #make one big feature matrix for all the different sets
+            ("features", FeatureExtractor()),
+            ("union", FeatureUnion( #make one big feature matrix from all the different sets
             transformer_list=[
 
                 #Pipeline for pulling features from articles
+            ("punct_stats_body", Pipeline([
+                          ("selector", ItemSelector(key="artikel")),
+                          ("stats", Punct_Stats()),  # returns a list of dicts
+                          ("vect", DictVectorizer()),  # list of dicts -> feature matrix
+                      ])),
 
-                ("punct_stats_body", Pipeline([
-                    ("selector", ItemSelector(key="artikel")),
-                    ("stats", Punct_Stats()),  # returns a list of dicts
-                    ("vect", DictVectorizer()),  # list of dicts -> feature matrix
+            ("scheldwoorden_body", Pipeline([
+                      ("selector", ItemSelector(key="artikel")),
+                      ("stats", Profanity()),  # returns a list of dicts
+                      ("vect", DictVectorizer()),  # list of dicts -> feature matrix
+                  ])),
+
+            ("text_stats_body", Pipeline([
+                      ("selector", ItemSelector(key="artikel")),
+                      ("stats", Text_Stats()),  # returns a list of dicts
+                      ("vect", DictVectorizer()),  # list of dicts -> feature matrix
+                  ])),
+
+            ("counts_body", Pipeline([
+                      ("selector", ItemSelector(key="artikel")),
+                      ("vect", CountVectorizer(ngram_range=(1,3), token_pattern = r"\b\w+\b", max_df = 0.5)),  # list of dicts -> feature matrix
+                  ])),
+
+            ("ngrams_body", Pipeline([
+                      ("selector", ItemSelector(key="artikel")),
+                      ("vect", TfidfVectorizer(ngram_range=(1,3), token_pattern = r"\b\w+\b", max_df = 0.5)),
+                 ])),
+
+            ("POS_body", Pipeline([
+                     ("selector", ItemSelector(key="tekst_pos")),
+                     ("vect", CountVectorizer(ngram_range=(1,3), token_pattern = r"\b\w+\b", max_df = 0.5)),
                 ])),
 
-                ("scheldwoorden_body", Pipeline([
-                    ("selector", ItemSelector(key="artikel")),
-                    ("stats", Profanity()),  # returns a list of dicts
-                    ("vect", DictVectorizer()),  # list of dicts -> feature matrix
-                ])),
+            ("punct_stats_titel", Pipeline([
+                             ("selector", ItemSelector(key="titel")),
+                             ("stats", Punct_Stats()),  # returns a list of dicts
+                             ("vect", DictVectorizer()),  # list of dicts -> feature matrix
+                         ])),
 
-                ("text_stats_body", Pipeline([
-                    ("selector", ItemSelector(key="artikel")),
-                    ("stats", Text_Stats()),  # returns a list of dicts
-                    ("vect", DictVectorizer()),  # list of dicts -> feature matrix
-                ])),
+            ("scheldwoorden_titel", Pipeline([
+                     ("selector", ItemSelector(key="titel")),
+                     ("stats", Profanity()),  # returns a list of dicts
+                     ("vect", DictVectorizer()),  # list of dicts -> feature matrix
+                 ])),
 
-                ("counts_body", Pipeline([
-                    ("selector", ItemSelector(key="artikel")),
-                    ("vect", CountVectorizer(ngram_range=(1,3), token_pattern = r'\b\w+\b', max_df = 0.5)),  # list of dicts -> feature matrix
-                ])),
+            ("text_stats_titel", Pipeline([
+                     ("selector", ItemSelector(key="titel")),
+                     ("stats", Text_Stats()),  # returns a list of dicts
+                     ("vect", DictVectorizer()),  # list of dicts -> feature matrix
+                 ])),
 
-                ("punct_stats_titel", Pipeline([
-                    ("selector", ItemSelector(key="titel")),
-                    ("stats", Punct_Stats()),  # returns a list of dicts
-                    ("vect", DictVectorizer()),  # list of dicts -> feature matrix
-                ])),
+            ("counts_titel", Pipeline([
+                     ("selector", ItemSelector(key="titel")),
+                     ("vect", CountVectorizer(ngram_range=(1,3), token_pattern = r"\b\w+\b", max_df = 0.5)),  # list of dicts -> feature matrix
+                 ])),
 
-                ("scheldwoorden_titel", Pipeline([
-                    ("selector", ItemSelector(key="titel")),
-                    ("stats", Profanity()),  # returns a list of dicts
-                    ("vect", DictVectorizer()),  # list of dicts -> feature matrix
-                ])),
+            ("ngrams_titel", Pipeline([
+                      ("selector", ItemSelector(key="titel")),
+                      ("vect", TfidfVectorizer(ngram_range=(1,3), token_pattern = r"\b\w+\b", max_df = 0.5)),
+                 ])),
 
-                ("text_stats_titel", Pipeline([
-                    ("selector", ItemSelector(key="titel")),
-                    ("stats", Text_Stats()),  # returns a list of dicts
-                    ("vect", DictVectorizer()),  # list of dicts -> feature matrix
-                ])),
+            ("POS_titel", Pipeline([
+                      ("selector", ItemSelector(key="titel_pos")),
+                      ("vect", CountVectorizer(ngram_range=(1,3), token_pattern = r"\b\w+\b", max_df = 0.5)),
+                 ])),
 
-                ("counts_titel", Pipeline([
-                    ("selector", ItemSelector(key="titel")),
-                    ("vect", CountVectorizer(ngram_range=(1,3), token_pattern = r'\b\w+\b', max_df = 0.5)),  # list of dicts -> feature matrix
-                ])),
+            ]
 
-                ('ngrams_titel', Pipeline([
-                     ('selector', ItemSelector(key="titel")),
-                     ('vect', TfidfVectorizer(ngram_range=(1,3), token_pattern = r'\b\w+\b', max_df = 0.5)),
-                ])),
-
-                 ('ngrams_body', Pipeline([
-                     ('selector', ItemSelector(key="artikel")),
-                     ('vect', TfidfVectorizer(ngram_range=(1,3), token_pattern = r'\b\w+\b', max_df = 0.5)),
-                ])),
-                #INSERT POS NGRAMS HERE FOR TITEL AND ARTICLE TEXT
-            ],
         )),
-
-        ("selection", SelectKBest(k=7)),
-        #use classifier on combined features
-        ("classifier", LogisticRegression(penalty="l2"))
+        ("selection", SelectKBest(k=1500, score_func=f_classif)),
+        ("classifier", RandomForestClassifier(n_estimators=20, criterion="entropy"))
     ])
 
     return pipeline
 
 
-def trainmodel(path):
+def trainmodel(model):
     #train model for neutral/non-neutral classification
-    df = pd.read_csv(path)
-    df.columns = ["naam", "titel", "tekst", "label"]
-    df["headlinebody"] = list(zip(df["titel"], df["tekst"]))
+    df = model
+    df.columns = ["naam", "titel", "tekst", "label", "tekst_pos", "titel_pos", "headlinebody"]
+    df["headlinebody"] = list(zip(df["titel"], df["tekst"], df["tekst_pos"], df["titel_pos"]))
     y = df.label.values
     X = df.headlinebody.values
+
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.10, random_state=30)
     y_neut = [0 if x == 0 else 1 for x in y_train]
     neutrality_pipeline = PipelineCreator()
@@ -229,11 +240,10 @@ def trainmodel(path):
 
 
 def classify(testdata, pipeline_1, pipeline_2):
-    """ Classifies inputs """
+#classify the data in test/development set in two steps
     responses = []
     prediction = pipeline_1.predict(testdata)
-
-    for i, line in enumerate(testdata): #index and articles text for X_test
+    for i, line in enumerate(testdata):
         if prediction[i] == 0:
             result = 0
         else:
@@ -250,29 +260,76 @@ def classify(testdata, pipeline_1, pipeline_2):
     return responses
 
 if __name__ == "__main__":
-    path = "/Users/leonievanstappen/Documents/github/thesis/news.csv"
-    df = pd.read_csv(path)
-    df.columns = ["naam", "titel", "tekst", "label"]
-    df["headlinebody"] = list(zip(df["titel"], df["tekst"]))
+    with open(file,"r+",) as open_csv:
+        df = pd.read_csv(open_csv, keep_default_na=False, index_col=False)
+        df.columns = ["naam", "titel", "tekst", "label", "tekst_pos", "titel_pos"]
+    df["headlinebody"] = list(zip(df["titel"], df["tekst"], df["tekst_pos"], df["titel_pos"]))
 
     y = df.label.values
     X = df.headlinebody.values
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.10, random_state=30)
-    #XNeut, XBias, yNeut, yBias = testsplit(X_test, y_test)
-    y_neut = [0 if x == 0 else 1 for x in y_test]
-    bias_fitted, neutrality_fitted = trainmodel(path)
-    responses = classify(X_test, neutrality_fitted, bias_fitted)
-    indices = []
-    for idx, label in enumerate(y_test):
-        if label == 0:
-            indices.append(idx)
-    yBias = np.delete(y_test, indices)
-    XBias = np.delete(X_test, indices)
 
-    neut_scores = cross_val_score(neutrality_fitted, X_test, y_neut, cv=10)
-    bias_scores = cross_val_score(bias_fitted, XBias, yBias, cv=10)
+    kfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=10)
 
-    print(f"Neutral score (avg): {neut_scores.mean()} \nStd Dev: {neut_scores.std()}")
-    print(f"Bias score (avg): {bias_scores.mean()} \nStd Dev {bias_scores.std()}")
-    print("Confusion Matrix:\n", confusion_matrix(y_test, responses, labels=[-1, 0, 1]))
-    print("Classification report:\n", classification_report(y_test, responses))
+    iter = 1
+    for train, test in kfold.split(X, y):
+        print(iter)
+        X_train = df.headlinebody.values[train]
+        y_train = df.label.values[train]
+        X_test = df.headlinebody.values[test]
+        y_test = df.label.values[test]
+
+        y_neut = [0 if x == 0 else 1 for x in y_train]
+        indices = []
+        for idx, label in enumerate(y_test):
+            if label == 0:
+                indices.append(idx)
+        yBias = np.delete(y_test, indices)
+        XBias = np.delete(X_test, indices)
+
+        bias_fitted, neutrality_fitted = trainmodel(df)
+        responses = classify(X_test, neutrality_fitted, bias_fitted)
+
+        print("Confusion Matrix:\n", confusion_matrix(y_test, responses, labels=[-1, 0, 1]))
+        print("accuracy:\n", accuracy_score(y_test, responses))
+        print("precision:\n", precision_score(y_test, responses, labels=[-1, 0, 1], average="macro"))
+        print("recall:\n", recall_score(y_test, responses, labels=[-1, 0, 1], average="macro"))
+        print("f1-score:\n", f1_score(y_test, responses, labels=[-1, 0, 1], average="macro"))
+        print(classification_report(y_test, responses))
+        iter += 1
+
+
+
+
+    """#GridSearch: find best parameters for each classifier and for KBest selection using train set to avoid overfitting
+    kbest_param = [{"selection__k": [10, 50, 100, 500, 1000, 1500], "selection__score_func": [f_classif, chi2]}]
+    rfc_parameters = [{"classifier__n_estimators": [10, 20], "classifier__criterion": ["gini", "entropy"]}]
+    SVM_parameters = [{"classifier__C": [1, 5], "classifier__kernel": ["rbf", "sigmoid"], "classifier__gamma": [0.01, 0.001], "classifier__shrinking": [True, False]}] #test again with poly kernel and degrees
+    knn_parameters = [{"classifier__n_neighbors": [5, 15], "classifier__weights": ["uniform", "distance"], "classifier__p": [1, 2]}]
+    nb_parameters = [{"classifier__alpha": [0.0, 1.0], "classifier__fit_prior": [True, False], "classifier__p": [1, 2]}]
+
+    pipeline = PipelineCreator(classifier, selection)
+    scoring = ["accuracy"]
+    for score in scoring:
+        print("# Tuning hyper-parameters for %s" % score)
+        print()
+        clf = GridSearchCV(pipeline, nb_parameters, cv=5, scoring="%s" % score, n_jobs=10)
+        clf.fit(X_train, y_train)
+        print("Best parameters set found on train set:")
+        print(clf.best_params_)
+        print()
+        #the following code shows all possible parameter combinations and their scores
+
+        print("Grid scores on train set:")
+        print()
+        means = clf.cv_results_["mean_test_score"]
+        stds = clf.cv_results_["std_test_score"]
+        for mean, std, params in zip(means, stds, clf.cv_results_["params"]):
+            print("%0.3f (+/-%0.03f) for %r"
+                  % (mean, std * 2, params))"""
+
+    #get scores for experiments
+    #neut_scores = cross_val_score(neutrality_fitted, X_test, y_neut, scoring="f1", cv=10)
+    #bias_scores = cross_val_score(bias_fitted, XBias, yBias, scoring="f1", cv=10)
+
+    #print(f"Neutral score (avg): {neut_scores.mean()} \nStd Dev: {neut_scores.std()}")
+    #print(f"Bias score (avg): {bias_scores.mean()} \nStd Dev {bias_scores.std()}")
