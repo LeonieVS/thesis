@@ -269,7 +269,10 @@ if __name__ == "__main__":
     X = df.headlinebody.values
 
     kfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=10)
-
+    #accuracy = []
+    prec = []
+    rec = []
+    f1 = []
     iter = 1
     for train, test in kfold.split(X, y):
         print(iter)
@@ -289,14 +292,19 @@ if __name__ == "__main__":
         bias_fitted, neutrality_fitted = trainmodel(df)
         responses = classify(X_test, neutrality_fitted, bias_fitted)
 
-        print("Confusion Matrix:\n", confusion_matrix(y_test, responses, labels=[-1, 0, 1]))
-        print("accuracy:\n", accuracy_score(y_test, responses))
-        print("precision:\n", precision_score(y_test, responses, labels=[-1, 0, 1], average="macro"))
-        print("recall:\n", recall_score(y_test, responses, labels=[-1, 0, 1], average="macro"))
-        print("f1-score:\n", f1_score(y_test, responses, labels=[-1, 0, 1], average="macro"))
-        print(classification_report(y_test, responses))
-        iter += 1
+        precision = precision_score(y_test, responses, labels=[-1, 0, 1], average="macro")
+        recall = recall_score(y_test, responses, labels=[-1, 0, 1], average="macro")
+        f1score = f1_score(y_test, responses, labels=[-1, 0, 1], average="macro")
 
+        print("Confusion Matrix:\n", confusion_matrix(y_test, responses, labels=[-1, 0, 1]))
+        #print("accuracy:\n", accuracy_score(y_test, responses))
+        print(classification_report(y_test, responses))
+
+        prec.append(precision)
+        rec.append(recall)
+        f1.append(f1score)
+        iter += 1
+    print("\nP:", np.asarray(prec).mean(), "\nP std:", np.asarray(prec).std(), "\nR:", np.asarray(rec).mean(), "\nR std:", np.asarray(rec).std(), "\nF1:", np.asarray(f1).mean(), "\nF1 std:", np.asarray(f1).std())
 
 
 
@@ -326,10 +334,3 @@ if __name__ == "__main__":
         for mean, std, params in zip(means, stds, clf.cv_results_["params"]):
             print("%0.3f (+/-%0.03f) for %r"
                   % (mean, std * 2, params))"""
-
-    #get scores for experiments
-    #neut_scores = cross_val_score(neutrality_fitted, X_test, y_neut, scoring="f1", cv=10)
-    #bias_scores = cross_val_score(bias_fitted, XBias, yBias, scoring="f1", cv=10)
-
-    #print(f"Neutral score (avg): {neut_scores.mean()} \nStd Dev: {neut_scores.std()}")
-    #print(f"Bias score (avg): {bias_scores.mean()} \nStd Dev {bias_scores.std()}")
